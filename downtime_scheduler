@@ -1,0 +1,204 @@
+#!/usr/bin/env python
+
+""" this program allows you to schedule downtime for a single hosts or batches
+of servers specified in a batch list
+
+format of batchfile is:
+
+name_of_batch:
+    name-of-nagios-server:
+        - nagios-hosts-to-schedule-downtime-for
+        - another-nagios-host-on-this-nagios
+
+    another_nagios-server:
+        - nagios-host-on-this-server
+
+when scheduling downtime for a single host not in a batch
+the downtime for that particular host is sent to all Nagios servers
+
+"""
+from argparse import ArgumentParser
+from datetime import datetime
+from datetime import timedelta
+import requests
+import yaml
+import sys
+
+# disable SSL warnings
+requests.packages.urllib3.disable_warnings()
+
+# nagios credentials
+nagios_user = "nagiosusername"
+nagios_pwd = "nagiospassword"
+
+# nagios server / servers
+nagios_servers = dict.fromkeys({"nagios1", "nagios2", "nagios3"})
+
+def_downtime_single = 20
+def_downtime_batch = 60
+
+batch_file = "./batch.yml"
+msg = "Patching"
+downtime_type = {"services_downtime": 86, "host_downtime": 55}
+
+
+def get_date_object(date):
+    """ parses a string date and time and returns a date object """
+    date, time = date.split()
+    year, month, day, minute, hour, seconds = \
+        [int(x) for x in date.split("-") + time.split(":")]
+    return datetime(year, month, day, minute, hour)
+
+
+def get_start_stop_time(minutes, date=datetime.utcnow()):
+    """ given minutes to pass and a start timestamp
+    returns start time and end time """
+
+    start_t = date.strftime("%Y-%m-%d %H:%M:%S")
+    stop_t = (date + timedelta(minutes=minutes)).strftime("%Y-%m-%d %H:%M:%S")
+    return start_t, stop_t
+
+
+def get_nagios_hosts_from_file():
+    try:
+        with open(batch_file) as f:
+            return yaml.safe_load(f)
+    except IOError:
+        print(" IO Error , does batch file in path exist")
+        sys.exit(1)
+
+
+def send_command(nagios_server, nagios_host, message, start_t, stop_t, dtime):
+    """ Send commands to a Nagios server using CGI """
+    nagios_url = "https://" + nagios_server + "/nagios/cgi-bin/cmd.cgi"
+    post_data = {"cmd_typ": downtime_type[dtime],
+                 "cmd_mod": 2,
+                 "host": nagios_host,
+                 "com_data": message,
+                 "trigger": 0,
+                 "start_time": start_t,
+                 "end_time": stop_t,
+                 "fixed": 1,
+                 "hours": 2,
+                 "minutes": 0,
+                 "btnSubmit": "Commit"}
+
+    r = requests.post(nagios_url, auth=(nagios_user, nagios_pwd),
+                      verify=False, data=post_data)
+    if args.verbose:
+        print(r)
+
+
+def single_or_multiple_hosts(hosts, start_t, stop_t, message):
+    hosts = hosts.split(",")
+    if len(hosts) == 1:
+        host_schedule_downtime(args.single, start_t, stop_t, args.message)
+    else:
+        for host in hosts:
+            host_schedule_downtime(host, start_t, stop_t, args.message)
+
+
+def host_schedule_downtime(host, start_t, stop_t, message):
+    """To skip specifying Nagios server for a single instance
+    we send the downtime schedule to all Nagios servers :) """
+
+    for key in nagios_servers.keys():
+        nagios_servers[key] = [host]
+
+    host_source = {"single": nagios_servers}
+
+    bulk_schedule_downtime("single", host_source, start_t, stop_t, message)
+
+
+def bulk_schedule_downtime(batch, hosts_source, start_t, stop_t, message):
+    now = datetime.now().strftime('[%H:%M]')
+
+    if not args.datetime:
+        print("%s Scheduling %s minutes of downtime for:" % (now, args.minutes))
+    else:
+        print("Scheduling %s minutes of downtime starting UTC %s for:"
+            % (args.minutes, args.datetime))
+
+    for nagios_server, hosts in hosts_source[batch].iteritems():
+        for host in hosts:
+            print("%s --> %s" % (host, nagios_server))
+            send_command(nagios_server, host, message, start_t, stop_t,
+                         "host_downtime")
+            send_command(nagios_server, host, message, start_t, stop_t,
+                         "services_downtime")
+
+
+def set_default_downtime_length():
+    if args.batch:  # set longer default downtime for batches
+        if args.minutes == 0:
+            args.minutes = def_downtime_batch
+    else:
+        if args.minutes == 0:
+            args.minutes = def_downtime_single
+
+
+parser = ArgumentParser()
+parser.add_argument("-l", "--list",
+                    help="list batches",
+                    dest="list_batches",
+                    action="store_true",
+                    default=False)
+
+parser.add_argument("-s", "--single", help="specify comma separated hosts")
+
+parser.add_argument("-b", "--batch",
+                    help="batch schedule",
+                    choices=get_nagios_hosts_from_file())
+
+parser.add_argument("-m", "--minutes", nargs='?', const=1, type=int,
+                    default=0,
+                    help="downtime in min. default " +
+                    str(def_downtime_single) + "/" + str(def_downtime_batch) +
+                    " for single/batch")
+
+parser.add_argument("-msg", "--message", nargs='?', const=1,
+                    default="scheduled downtime", help="custom downtime msg")
+
+parser.add_argument("-dt", "--datetime",
+                    help="start date time in \
+                    UTC format: '1970-01-01 16:16:12'")
+
+parser.add_argument("-v", "--verbose",
+                    help="Verbose responses from Nagios",
+                    dest="verbose",
+                    action="store_true",
+                    default=False)
+args = parser.parse_args()
+
+
+def main():
+    if args.datetime:
+        if not args.minutes:
+            if not args.batch:
+                args.minutes = 20
+            else:
+                args.minutes = 60
+        start_t, stop_t = get_start_stop_time(args.minutes,
+                                              get_date_object(args.datetime))
+    else:
+        set_default_downtime_length()
+        start_t, stop_t = get_start_stop_time(args.minutes)
+
+    if args.list_batches:
+        print(yaml.dump(get_nagios_hosts_from_file(),
+                        allow_unicode=True, default_flow_style=False))
+    elif args.batch:
+
+        host_source = get_nagios_hosts_from_file()
+        bulk_schedule_downtime(args.batch, host_source, start_t, stop_t,
+                               args.message)
+
+    elif args.single:
+        single_or_multiple_hosts(args.single, start_t, stop_t, args.message)
+
+    else:
+        if len(sys.argv) == 1:
+            parser.print_help()
+
+
+main()

@@ -1,0 +1,12 @@
+---
+batch1:
+  nagios1:
+    - server1
+    - server2
+  nagios2:
+    - server3
+    - server4
+batch2:
+  nagios3:
+    - server5
+    - server6
