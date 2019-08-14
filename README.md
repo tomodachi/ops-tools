@@ -1,5 +1,5 @@
 # ops-tools
-A collection of scripts for ops related tasks
+A collection of programs for ops related tasks
 
 ***downtime_scheduler:***  
 nagios is just to much clicking!!  
