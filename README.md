@@ -24,3 +24,29 @@ optional arguments:
                         start date time in UTC format: '1970-01-01 16:16:12'
   -v, --verbose         Verbose responses from Nagios
 ```
+
+
+***build_inv:***  
+
+because sometimes we treat all infra as snowflakes!  
+builds ansible inventory file & ssh config invetory file
+
+- multi az / region / aws account support  
+- excluding instances with filters based on hostname or tags
+
+```
+Build Ansible / SSH inventory to stdout                         
+Use AWS main creds to generate for all accounts
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -a, --ansible         build ansible inventory file
+  -s, --ssh             build ssh config file
+  -ns, --no-ssh         don't include custom ssh config
+  -nx, --no-exclude     disable exclude list
+  -u DEFAULT_USERNAME, --user DEFAULT_USERNAME
+                        include specified user in each entry
+  -i DEFAULT_IDENTITY_FILE, --identity DEFAULT_IDENTITY_FILE
+                        include identity file in each entry
+➜  
+```
