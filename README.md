@@ -52,5 +52,4 @@ optional arguments:
                         include specified user in each entry
   -i DEFAULT_IDENTITY_FILE, --identity DEFAULT_IDENTITY_FILE
                         include identity file in each entry
-➜  
 ```
