@@ -1,9 +1,12 @@
 # ops-tools
 A collection of programs for ops related tasks
 
+---
+
 ***downtime_scheduler:***  
 nagios is just to much clicking!!  
-cmd line tool allows you to downtime one, multiple or batches of hosts!!!
+cmd line tool allows you to downtime 
+one multiple or batches of hosts!!!
 
 ```
 usage: downtime_scheduler [-h] [-l] [-s SINGLE] [-b {batch2,batch1}]
@@ -24,12 +27,13 @@ optional arguments:
                         start date time in UTC format: '1970-01-01 16:16:12'
   -v, --verbose         Verbose responses from Nagios
 ```
-
+---
 
 ***build_inv:***  
 
-because sometimes we treat all infra as snowflakes!  
-builds ansible inventory file & ssh config invetory file
+because sometimes we treat infra as snowflakes!  
+builds ansible inventory file 
+buikld ssh config inventory file
 
 - multi az / region / aws account support  
 - excluding instances with filters based on hostname or tags
