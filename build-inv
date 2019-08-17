@@ -1,0 +1,308 @@
+#!/usr/bin/env python
+
+import re
+import sys
+from argparse import ArgumentParser
+from argparse import RawTextHelpFormatter
+import boto3
+import os
+
+# Queries AWS building an Instance inventory file for ansible or ssh
+
+# Requirements:
+# - boto3 for python
+# - your AWS credentials in ~/aws
+
+# To only build an inventory for your VPC use the -nb option
+
+# To build a complete inventory file for all VPCs
+# you need to default AWS profile to your main account id
+
+
+# Exclude Instances with names containing any of these space separated words
+# in ansible inventory generation
+exclude_names = "host1 host2 host3".split()
+
+
+# The role we assume in each account
+# to get the required permissions to query AWS
+# for instance info
+role_session_name = "informative-name-you-pick"
+iam_role = "name-of-your-iam-role"
+
+# exclude Instances containing these tags in key / value format
+exclude_tags = {"hostgroups": "waf-utm,vpn-appliance"}
+
+
+# regions you want build-inv to include in it's inventory generation
+regions = "eu-west-1 eu-central-1 sa-east-1 us-west-1 us-east-1".split()
+
+# enter tha account ID of the main account
+#  from this account build-inv will assume roles in other accounts
+main_aws_account_id = "xxxxxxxxxx"
+
+all_vpcs = {"vpc-xxx1": "vpc1",
+            "vpc-xxx1": "vpc2",
+            None: "aws-classic"}
+
+account_id = {"account-id-name-here": "account-id-number-here"}
+
+# regexp for valid instance DNS names
+regexp = re.compile('^[\d\w\-]+$')
+
+
+class AwsInstance:
+    """ Represents an Amazon Instance with some key attributes.
+    exposes a global dict with all running instances
+    that conform to the name standard requirements set
+    """
+    instances_by_id = {}
+    instances_by_name = {}
+
+    def __init__(self, hostname, ip, id, taglist, region, vpc_id, placement):
+        self.hostname = hostname
+        self.ip = ip
+        self.id = id
+        self.vpc_id = vpc_id
+        self.taglist = taglist
+        try:
+            self.vpc = all_vpcs[vpc_id]
+        except KeyError:
+            self.vpc = vpc_id
+        self.region = region
+        self.az = placement["AvailabilityZone"]
+
+        if regexp.search(hostname) is None:
+            raise ValueError("invalid instance name")
+
+        if (in_exclude_list(self)):
+            pass
+
+        else:
+            # add instances by name
+            AwsInstance.instances_by_name[hostname] = [self]
+
+            # add instances by id
+            AwsInstance.instances_by_id[self.id] = self
+
+    def __str__(self):
+        return " ".join([self.ip, self.hostname, self.id,
+                         self.region, self.vpc,
+                         str(self.taglist), str(self.placement)])
+
+
+def assume_role(arn):
+    """ Given an ARN a role within that VPC """
+
+    sts_client = boto3.client('sts')
+
+    assumedRoleObject = sts_client.assume_role(
+            RoleArn=arn, RoleSessionName=role_session_name)
+
+    credentials = assumedRoleObject['Credentials']
+    return credentials
+
+
+def using_main_account_creds():
+    return boto3.client('sts').get_caller_identity()['Account'] \
+            == main_aws_account_id
+
+
+def generate_instance_data():
+    """ Generate a  collection of all running instances with some nice to have
+    attributes """
+
+    def filter_out_instances(ec2, region):
+        # only keep instances wich have the state running
+        vpc_instances = ec2.instances.filter(
+            Filters=[{'Name': 'instance-state-name', 'Values': ['running']}])
+
+        for instance in vpc_instances:
+
+            # quite possibly an instance has no tags at all then we skip it
+            if instance.tags is None:
+                continue
+
+            for taglist in instance.tags:
+                if taglist["Key"] == "Name":
+                    hostname = taglist["Value"]
+
+            # Instances not in a VPC are populated with it's public IP
+            # Done under the assumtion that you VPC instances are reach over
+            # a vpn/mgmt net and other instances you manage over the Internet
+
+            # Instance object with the public IP
+            if instance.vpc_id is None:
+                ip = instance.public_ip_address
+            else:
+                ip = instance.private_ip_address
+
+            try:
+                inst = AwsInstance(hostname, ip,
+                                   instance.id,
+                                   instance.tags, region, instance.vpc_id,
+                                   instance.placement)
+                inst.vpc_id = instance.vpc_id
+
+            except ValueError:
+                pass
+
+    # Get all instances regions in your main VPC
+    for region in regions:
+        ec2 = boto3.resource("ec2", region)
+        filter_out_instances(ec2, region)
+
+        if using_main_accounts_creds():
+            # All instances for other VPC accounts using assume role
+            for k, v in account_id.iteritems():
+                creds = assume_role("arn:aws:iam::" + v + ":role/" + iam_role)
+
+                ec2 = boto3.resource("ec2", region,
+                                     aws_access_key_id=creds['AccessKeyId'],
+                                     aws_secret_access_key=creds['SecretAccessKey'],
+                                     aws_session_token=creds['SessionToken'])
+
+                filter_out_instances(ec2, region)
+
+
+def in_exclude_list(instance):
+    """ returns True for instances that match certain exclude criterias """
+
+    if args.use_ignorelist and args.gen_ansible_inventory:
+        for name in exclude_names:
+            if name in instance.hostname:
+                return True
+
+        for tag_dict in instance.taglist:
+            for k, v in exclude_tags.iteritems():
+                if k == tag_dict["Key"]:
+                    for value in v.split(","):
+                        if value in tag_dict["Value"]:
+                            return True and args.use_ignorelist
+    return False
+
+
+def generate_ansible_file():
+    """ generates a ansible hosts file for all VPCs, Regions and
+    availability zones (excluding the test VPC )"""
+
+    generate_instance_data()
+
+    ansible_output_file = {"vpc": set()}
+    ansible_output_file["region"] = set()
+    ansible_output_file["az"] = {}
+
+    for i in AwsInstance.instances_by_id.values():
+        ansible_output_file["vpc"].add(i.vpc)
+
+        region = i.vpc + "--" + i.region
+        ansible_output_file["region"].add(region)
+
+        az = i.vpc + "--" + i.az
+        if az not in ansible_output_file["az"]:
+            ansible_output_file["az"][az] = []
+        ansible_output_file["az"][az].append(i.hostname)
+
+    vpcs = ansible_output_file["vpc"]
+    regions = ansible_output_file["region"]
+    azs = ansible_output_file["az"]
+
+    # generates ansible inventory file with nested grouping VPC, Region,
+    # availability zone and instances in each of those
+    for vpc in vpcs:
+        print("\n[" + vpc + ":children]")
+        for region in regions:
+            if region.startswith(vpc):
+                print(region)
+
+    for region in regions:
+        print("\n[" + region + ":children]")
+        for az in azs:
+            if az.startswith(region):
+                print(az)
+
+    for az in azs:
+        print("\n[" + az + "]")
+        for instance in AwsInstance.instances_by_id.values():
+            if az.endswith(instance.az) and az.startswith(instance.vpc):
+                tags = ""
+                for td in instance.taglist:
+                    if all([td["Key"] != "Name", ' ' not in td["Key"], ' ' not in td["Value"]]):
+                        tags += td["Key"] + "=" + "\"" + td["Value"] + "\" "
+                print(instance.hostname, tags, "#", instance.ip)
+
+
+def generate_ssh_config():
+    """ generates ssh config file """
+
+    output = ""
+    generate_instance_data()
+
+    if args.use_custom_ssh_config:
+        path = os.path.expanduser('~/.ssh/config.custom')
+        try:
+            with open(path) as f:
+
+                for line in f:
+                    output += line
+        except IOError:
+                pass
+
+    output += "\n##### build-inv generated config starts here #####\n"
+    if any([args.default_username, args.default_identity_file]):
+        output += "Host *\n"
+        output += ("User" + " " + str(args.default_username) + "\n" if args.default_username else "")
+        output += ("IdentityFile" + " " + str(args.default_identity_file) + "\n" if args.default_identity_file else "")
+        output += "\n"
+    for instance in AwsInstance.instances_by_id.values():
+        output += "Host" + " " + str(instance.hostname) + "\n"
+        output += "HostName %h\n\n"
+
+    print(output)
+
+
+def main():
+    if args.gen_ansible_inventory:
+        generate_ansible_file()
+
+    elif args.gen_ssh_config:
+        generate_ssh_config()
+
+    if len(sys.argv) == 1:
+        parser.print_help()
+
+
+parser = ArgumentParser(description="Build Ansible / SSH inventory to stdout \
+                        \nUse AWS main creds to generate for all accounts",
+                        formatter_class=RawTextHelpFormatter)
+parser.add_argument("-a", "--ansible",
+                    help="build ansible inventory file",
+                    dest="gen_ansible_inventory",
+                    action="store_true",
+                    default=False)
+parser.add_argument("-s", "--ssh",
+                    help="build ssh config file",
+                    dest="gen_ssh_config",
+                    action="store_true",
+                    default=False)
+parser.add_argument("-ns", "--no-ssh",
+                    help="don't include custom ssh config",
+                    dest="use_custom_ssh_config",
+                    action="store_false",
+                    default=True)
+parser.add_argument("-nx", "--no-exclude",
+                    help="disable exclude list",
+                    dest="use_ignorelist",
+                    action="store_false",
+                    default=True)
+parser.add_argument("-u", "--user",
+                    help="include specified user in each entry",
+                    dest="default_username",
+                    default=None)
+parser.add_argument("-i", "--identity",
+                    help="include identity file in each entry",
+                    dest="default_identity_file",
+                    default=None)
+args = parser.parse_args()
+
+main()
