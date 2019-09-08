@@ -33,7 +33,7 @@ optional arguments:
 
 because sometimes we treat infra as snowflakes!  
 builds ansible inventory file 
-buikld ssh config inventory file
+builds ssh config inventory file
 
 - multi az / region / aws account support  
 - excluding instances with filters based on hostname or tags
