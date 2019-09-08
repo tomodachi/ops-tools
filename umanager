@@ -1,0 +1,314 @@
+#!/usr/bin/env python3
+# a cmdline tool to add / disable  users in AWS / freeIPA
+
+
+import boto3
+from botocore.exceptions import ClientError
+import time
+import sys
+import getpass
+from argparse import ArgumentParser
+import ipahttp
+import requests
+requests.packages.urllib3.disable_warnings()
+
+
+email_domain = "@yourdomain.com"
+ipa_server = "your_ipa_http_url"
+
+
+parser = ArgumentParser(description="Add / Disable / list IPA/AWS  accounts")
+parser.add_argument("-d", "--disable",
+                    help="disable a user(s) in all systems",
+                    dest="d_usernames")
+
+parser.add_argument("-a", "--add",
+                    help="add a single user in all systems",
+                    dest="a_username")
+
+parser.add_argument("-f", "--first",
+                    help="first")
+
+parser.add_argument("-l", "--last",
+                    help="lastname")
+
+parser.add_argument("-ls", "--list",
+                    help="list users services -ls all for all users",
+                    dest="l_usernames")
+
+parser.add_argument("-u", "--username",
+                    help="ipa username from cmdline",
+                    dest="ipauser")
+
+parser.add_argument("-s", "--service",
+                    dest="service",
+                    help="ipa|aws")
+
+parser.add_argument("-ag", "--aws-group",
+                    help="aws groups to add user to",
+                    dest="aws_groups",
+                    default=list())
+
+parser.add_argument("-nc", "--no-color",
+                    help="disable color otput",
+                    dest="use_color",
+                    action="store_false"
+                    )
+
+
+args = parser.parse_args()
+
+
+def color_print(message, color):
+    colors = {"red": "\033[1;31m",
+              "reset": "\033[0;0m",
+              "green": "\033[0;32m",
+              "bold": "\033[1m"}
+
+    if args.use_color:
+        sys.stdout.write(colors[color])
+        sys.stdout.write(message)
+        sys.stdout.write(colors["reset"])
+        return
+
+    sys.stdout.write(message)
+
+
+def list_freeipa_users(ipa_session, users):
+    if users != "all":
+        users = users.split(",")
+    else:
+        result = ipa_session.user_find("")
+        users = ([x['uid'][0] for x in result['result']['result']
+                 if "." not in x['uid'][0]])
+
+    for user in users:
+        try:
+            result = ipa_session.user_status(user)['result']['summary']
+            if "True" in result:
+                account_disabled = True
+            else:
+                account_disabled = False
+
+            color_print(user, "bold")
+            sys.stdout.write(" service: ipa [")
+            if account_disabled:
+                color_print("inactive", "red")
+            else:
+                color_print("active", "green")
+            print("]")
+
+        except TypeError:
+            pass
+
+
+def disable_freeipa_users(ipa_session, users):
+    """ Takes a single user, string or list of users
+    and disables them in FreeIPA """
+
+    for user in users.split(","):
+        result = ipa_session.user_disable(user)
+        if result['error'] is not None:
+            # ignore errors for disabling disabled users
+            if result['error']['code'] != 4010:
+                print(user, result['error']['message'])
+
+    # wait for changes to propagate before listing results
+    time.sleep(3)
+    list_freeipa_users(ipa_session, users)
+
+
+def get_aws_user_access_key_status(aws, username):
+    paginator = aws.get_paginator('list_access_keys')
+    for response in paginator.paginate(UserName=username):
+        for entry in response['AccessKeyMetadata']:
+            if entry['Status'] == "Active":
+                return "active"
+
+    return "inactive"
+
+
+def disable_aws_users(usernames):
+    """ Disables AWS Users password & AWS keys """
+
+    uname_email = []
+
+    for uname in usernames.split(","):
+        if "@" not in uname:
+            uname_email.append(uname + email_domain)
+        else:
+            uname_email.append(uname)
+
+    aws = boto3.client('iam')
+
+    for email in uname_email:
+        try:
+            # remove users password as there is no disabled user concept in AWS
+            aws.delete_login_profile(UserName=email)
+        except aws.exceptions.NoSuchEntityException:
+            pass
+            # this exception happens when there is no login profile to disable
+            # meaning web console login is disabled
+
+        # disable users access keys
+        try:
+            paginator = aws.get_paginator('list_access_keys')
+            for response in paginator.paginate(UserName=email):
+                for entry in response['AccessKeyMetadata']:
+                    if entry['Status'] == "Active":
+                        aws.update_access_key(UserName=email,
+                                              AccessKeyId=entry['AccessKeyId'],
+                                              Status="Inactive")
+        except aws.exceptions.NoSuchEntityException as e:
+            print("cannot disable user key")
+            print(e)
+
+        list_aws_users(uname_email)
+
+
+def add_aws_user(session, user, groups):
+
+    try:
+        session.create_user(UserName=user)
+
+    except ClientError:
+        print("Error: unable to create user %s" % user)
+
+    if groups:
+        try:
+            for group in groups.split(","):
+                session.add_user_to_group(UserName=user,
+                                          GroupName=group)
+
+        except session.exceptions.NoSuchEntityException:
+            print("Error: cannot add user to nonexistent group")
+
+
+def list_aws_users(users):
+    iam = boto3.client('iam')
+    paginator = iam.get_paginator('list_users')
+
+    users_email = []
+
+    for user in users:
+        if "@" in users:
+            users_email.append(user)
+        else:
+            users_email.append(user + email_domain)
+
+    user_data = {}
+
+    for resp in paginator.paginate():
+        for entry in resp['Users']:
+            username = entry['UserName']
+            if username in users or users == "all":
+                try:
+                    iam.get_login_profile(UserName=username)
+                    console_status = "active"
+                except Exception as e:
+                    if e.response['ResponseMetadata']['HTTPStatusCode'] == 404:
+                        console_status = "inactive"
+
+                key_status = get_aws_user_access_key_status(iam, username)
+                user_data[username] = {"aws":
+                                       {"keys": key_status,
+                                           "console": console_status}
+                                       }
+
+    for user, service in user_data.items():
+        color_print(user, "bold")
+        for service, content in service.items():
+            sys.stdout.write("".join([" ", "service: ", service, " ["]))
+            for t, state in content.items():
+                sys.stdout.write("".join([" ", t, ":"]))
+                if state == "active":
+                    color_print(" " + state, "green")
+                else:
+                    color_print(" " + state, "red")
+            print(" ]")
+
+
+def add_freeipa_users(ipa_session, user):
+    """ Takes a single user and creates _ and .
+    account for that user """
+
+    email = "".join([args.first, ".",  args.last, email_domain])
+    cn = "".join([args.first, ' ', args.last])
+
+    result = (ipa_session.stageuser_add(user,
+                                        {'givenname': args.first.title(),
+                                         'sn': args.last.title(),
+                                         'cn': cn,
+                                         "mail": email}))
+
+    if result['error'] is not None:
+        print(result)
+
+    result = (ipa_session.stageuser_activate(user))
+
+    if result['error'] is not None:
+        print(result)
+
+
+def ipa_login(ipa_session, args):
+    """ Prompts for IPA credentials and logs in
+    program exits if auth fails """
+
+    print("Enter your IPA credentials to execute")
+    if args.ipauser:
+        password = getpass.getpass("password:")
+        result = ipa_session.login(args.ipauser, password)
+    else:
+
+        username = input("username:")
+        password = getpass.getpass("password:")
+        result = ipa_session.login(username, password)
+
+    if result is None:  # Exit if auth fails
+        exit(0)
+
+
+def main():
+    if len(sys.argv) == 1 or not args.service:
+        parser.print_help()
+        exit(0)
+
+    if args.a_username:
+        if "ipa" in args.service:
+            ipa_session = ipahttp.ipa(ipa_server)
+            ipa_login(ipa_session, args)
+            add_freeipa_users(ipa_session, args.a_username)
+
+        if "aws" in args.service:
+            aws_session = boto3.client("iam")
+            add_aws_user(aws_session, "".join([args.first,
+                                               ".",
+                                               args.last,
+                                               email_domain]),
+                         args.aws_groups
+                         )
+
+    elif args.d_usernames:
+        if "ipa" in args.service:
+            ipa_session = ipahttp.ipa(ipa_server)
+            ipa_login(ipa_session, args)
+            disable_freeipa_users(ipa_session, args.d_usernames)
+
+        if "aws" in args.service:
+            disable_aws_users(args.d_usernames)
+
+    elif args.l_usernames:
+        if "ipa" in args.service:
+            ipa_session = ipahttp.ipa(ipa_server)
+            ipa_login(ipa_session, args)
+            list_freeipa_users(ipa_session, args.l_usernames)
+
+        if "aws" in args.service:
+            list_aws_users(args.l_usernames)
+
+
+main()
+
+# TODO:
+# check all AWS accounts,
+# using assume role instead of using a hard-coded profile
