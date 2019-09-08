@@ -53,3 +53,34 @@ optional arguments:
   -i DEFAULT_IDENTITY_FILE, --identity DEFAULT_IDENTITY_FILE
                         include identity file in each entry
 ```
+***umanager:***
+Batch account user management for AWS IAM accounts & FreeIPA.  
+For easier scripting & automation.    
+Depends on [ipahtttp](https://github.com/nordnet/python-freeipa-json)
+
+```
+usage: umanager [-h] [-d D_USERNAMES] [-a A_USERNAME] [-f FIRST] [-l LAST]
+                [-ls L_USERNAMES] [-u IPAUSER] [-s SERVICE] [-ag AWS_GROUPS]
+                [-nc]
+
+Add / Disable / list IPA/AWS accounts
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -d D_USERNAMES, --disable D_USERNAMES
+                        disable a user(s) in all systems
+  -a A_USERNAME, --add A_USERNAME
+                        add a single user in all systems
+  -f FIRST, --first FIRST
+                        first
+  -l LAST, --last LAST  lastname
+  -ls L_USERNAMES, --list L_USERNAMES
+                        list users services -ls all for all users
+  -u IPAUSER, --username IPAUSER
+                        ipa username from cmdline
+  -s SERVICE, --service SERVICE
+                        ipa|aws
+  -ag AWS_GROUPS, --aws-group AWS_GROUPS
+                        aws groups to add user to
+  -nc, --no-color       disable color otput
+```
