@@ -154,7 +154,7 @@ def generate_instance_data():
 
         if using_main_accounts_creds():
             # All instances for other VPC accounts using assume role
-            for k, v in account_id.iteritems():
+            for k, v in account_id.items():
                 creds = assume_role("arn:aws:iam::" + v + ":role/" + iam_role)
 
                 ec2 = boto3.resource("ec2", region,
@@ -174,7 +174,7 @@ def in_exclude_list(instance):
                 return True
 
         for tag_dict in instance.taglist:
-            for k, v in exclude_tags.iteritems():
+            for k, v in exclude_tags.items():
                 if k == tag_dict["Key"]:
                     for value in v.split(","):
                         if value in tag_dict["Value"]:

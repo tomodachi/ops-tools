@@ -125,7 +125,7 @@ def bulk_schedule_downtime(batch, hosts_source, start_t, stop_t, message):
             % (args.minutes, args.datetime)
         )
 
-    for nagios_server, hosts in hosts_source[batch].iteritems():
+    for nagios_server, hosts in hosts_source[batch].items():
         for host in hosts:
             print("%s --> %s" % (host, nagios_server))
             send_command(nagios_server, host, message, start_t, stop_t, "host_downtime")
