@@ -4,7 +4,7 @@ A collection of programs for ops related tasks
 ---
 
 ***downtime_scheduler:***  
-nagios is just to much clicking!!  
+nagios is just too much clicking!!  
 cmd line tool allows you to downtime 
 one multiple or batches of hosts!!!
 
