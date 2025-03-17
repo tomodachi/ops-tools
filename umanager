@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 # a cmdline tool to add / disable  users in AWS / freeIPA
 
-
-import boto3
-from botocore.exceptions import ClientError
-import time
-import sys
-import getpass
 from argparse import ArgumentParser
-import ipahttp
+import getpass
+import sys
+import time
 import requests
+from botocore.exceptions import ClientError
+import boto3
+import ipahttp
 
 requests.packages.urllib3.disable_warnings()
 
@@ -111,8 +110,8 @@ def list_freeipa_users(ipa_session, users):
 
 
 def disable_freeipa_users(ipa_session, users):
-    """ Takes a single user, string or list of users
-    and disables them in FreeIPA """
+    """Takes a single user, string or list of users
+    and disables them in FreeIPA"""
 
     for user in users.split(","):
         result = ipa_session.user_disable(user)
@@ -137,7 +136,7 @@ def get_aws_user_access_key_status(aws, username):
 
 
 def disable_aws_users(usernames):
-    """ Disables AWS Users password & AWS keys """
+    """Disables AWS Users password & AWS keys"""
 
     uname_email = []
 
@@ -237,8 +236,8 @@ def list_aws_users(users):
 
 
 def add_freeipa_users(ipa_session, user):
-    """ Takes a single user and creates _ and .
-    account for that user """
+    """Takes a single user and creates _ and .
+    account for that user"""
 
     email = "".join([args.first, ".", args.last, email_domain])
     cn = "".join([args.first, " ", args.last])
@@ -263,8 +262,8 @@ def add_freeipa_users(ipa_session, user):
 
 
 def ipa_login(ipa_session, args):
-    """ Prompts for IPA credentials and logs in
-    program exits if auth fails """
+    """Prompts for IPA credentials and logs in
+    program exits if auth fails"""
 
     print("Enter your IPA credentials to execute")
     if args.ipauser:
