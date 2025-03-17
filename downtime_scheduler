@@ -20,9 +20,9 @@ the downtime for that particular host is sent to all Nagios servers
 from argparse import ArgumentParser
 from datetime import datetime
 from datetime import timedelta
+import sys
 import requests
 import yaml
-import sys
 
 # disable SSL warnings
 requests.packages.urllib3.disable_warnings()
@@ -43,7 +43,7 @@ downtime_type = {"services_downtime": 86, "host_downtime": 55}
 
 
 def get_date_object(date):
-    """ parses a string date and time and returns a date object """
+    """parses a string date and time and returns a date object"""
     date, time = date.split()
     year, month, day, minute, hour, seconds = [
         int(x) for x in date.split("-") + time.split(":")
@@ -52,8 +52,8 @@ def get_date_object(date):
 
 
 def get_start_stop_time(minutes, date=datetime.utcnow()):
-    """ given minutes to pass and a start timestamp
-    returns start time and end time """
+    """given minutes to pass and a start timestamp
+    returns start time and end time"""
 
     start_t = date.strftime("%Y-%m-%d %H:%M:%S")
     stop_t = (date + timedelta(minutes=minutes)).strftime("%Y-%m-%d %H:%M:%S")
@@ -70,7 +70,7 @@ def get_nagios_hosts_from_file():
 
 
 def send_command(nagios_server, nagios_host, message, start_t, stop_t, dtime):
-    """ Send commands to a Nagios server using CGI """
+    """Send commands to a Nagios server using CGI"""
     nagios_url = "https://" + nagios_server + "/nagios/cgi-bin/cmd.cgi"
     post_data = {
         "cmd_typ": downtime_type[dtime],
@@ -104,7 +104,7 @@ def single_or_multiple_hosts(hosts, start_t, stop_t, message):
 
 def host_schedule_downtime(host, start_t, stop_t, message):
     """To skip specifying Nagios server for a single instance
-    we send the downtime schedule to all Nagios servers :) """
+    we send the downtime schedule to all Nagios servers :)"""
 
     for key in nagios_servers.keys():
         nagios_servers[key] = [host]

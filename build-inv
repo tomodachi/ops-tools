@@ -4,8 +4,8 @@ import re
 import sys
 from argparse import ArgumentParser
 from argparse import RawTextHelpFormatter
-import boto3
 import os
+import boto3
 
 # Queries AWS building an Instance inventory file for ansible or ssh
 
@@ -50,7 +50,7 @@ regexp = re.compile("^[\d\w\-]+$")
 
 
 class AwsInstance:
-    """ Represents an Amazon Instance with some key attributes.
+    """Represents an Amazon Instance with some key attributes.
     exposes a global dict with all running instances
     that conform to the name standard requirements set
     """
@@ -99,7 +99,7 @@ class AwsInstance:
 
 
 def assume_role(arn):
-    """ Given an ARN a role within that VPC """
+    """Given an ARN a role within that VPC"""
 
     sts_client = boto3.client("sts")
 
@@ -116,8 +116,8 @@ def using_main_account_creds():
 
 
 def generate_instance_data():
-    """ Generate a  collection of all running instances with some nice to have
-    attributes """
+    """Generate a  collection of all running instances with some nice to have
+    attributes"""
 
     def filter_out_instances(ec2, region):
         # only keep instances wich have the state running
@@ -182,7 +182,7 @@ def generate_instance_data():
 
 
 def in_exclude_list(instance):
-    """ returns True for instances that match certain exclude criterias """
+    """returns True for instances that match certain exclude criterias"""
 
     if args.use_ignorelist and args.gen_ansible_inventory:
         for name in exclude_names:
@@ -199,7 +199,7 @@ def in_exclude_list(instance):
 
 
 def generate_ansible_file():
-    """ generates a ansible hosts file for all VPCs, Regions and
+    """generates a ansible hosts file for all VPCs, Regions and
     availability zones (excluding the test VPC )"""
 
     generate_instance_data()
@@ -255,7 +255,7 @@ def generate_ansible_file():
 
 
 def generate_ssh_config():
-    """ generates ssh config file """
+    """generates ssh config file"""
 
     output = ""
     generate_instance_data()
