@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -eou pipefail
+
+# A script to generate a random meet url and save URL to clipboard
+# And launch in browser tab
+#
+# Required dependencies:
+# - pwgen
+# - firefox or chromium
+#
+# Optional dependencies:
+# If you want to open the meet tab in a particular firefox container
+# - https://addons.mozilla.org/en-US/firefox/addon/open-url-in-container/
+
+# Name of firefox multi-account container
+# Leave empty if you're not using this feature
+meet_container=""
+
+random_name="$(pwgen -0 3)-$(pwgen -0 4)-$(pwgen -0 3)"
+random_name_lower="$(echo "$random_name" | tr '[:upper:]' '[:lower:]')"
+echo "https://g.co/meet/$random_name_lower" | wl-copy
+
+if command -v firefox; then
+	if [ -z "${meet_container}" ]; then
+		firefox g.co/meet/"$random_name_lower"
+	else
+		firefox "ext+container:name=$meet_container&url=g.co/meet/$random_name_lower"
+	fi
+else
+	chromium "g.co/meet/$random_name_lower"
+fi

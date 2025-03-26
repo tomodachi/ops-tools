@@ -84,3 +84,9 @@ optional arguments:
                         aws groups to add user to
   -nc, --no-color       disable color otput
 ```
+
+***random-meet:***  
+
+command line based shortcut for launching a new randomly generated google meeting  
+Will open the google meet url in your browser and 
+copy the url to your copy-paste buffer for easy sharing
